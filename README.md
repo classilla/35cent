@@ -17,7 +17,7 @@ Once the connection is established, you may enter a mini-terminal (press F1 to e
 
 "Hanging up" will cause the answer tone to be turned off, which most connected modems will perceive as a loss of carrier.
 
-The communication is done with Bell 103 modulation. Look at the file `post.txt` for John's original post from 1998, including BASIC source code and a brief description. [Here's a disassembly of the original code and how it works.](hhttps://oldvcr.blogspot.com/2025/01/the-35-cent-commodore-64-softmodem.html)
+The communication is done with Bell 103 modulation. Look at the file `post.txt` for John's original post from 1998, including BASIC source code and a brief description. [Here's a disassembly of the original code and how it works.](https://oldvcr.blogspot.com/2025/01/the-35-cent-commodore-64-softmodem.html)
 
 ## Building
 
