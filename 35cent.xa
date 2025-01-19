@@ -301,13 +301,10 @@ filend	cpx #0
 	rts
 
 	; send a file using Xmodem-CRC
-	; $8b, $8c = running 16-bit CRC in big-endian
-	; $8d = next byte being shifted in
-	; $02 = count of bytes in Xmodem packet
 uxmodem	lda #$7f
 	sta $dc0d	; ensure no CIA sources of interrupts
 	ldx #$08
-	jsr $ffc6	; Kernal chkin (already opened by BASIC)
+	jsr $ffc6	; Kernal chkin
 	lda #$01
 	sta xpackn	; workspace for current packet
 	; start sending the current Xmodem packet
@@ -358,7 +355,7 @@ xpaccrd	dex
 	bpl xpackr	; if not 128 bytes, get some more
 	; packet's done
 xpackd	txa		; x is zero, so zero accumulator
-	dey		; flush the initial bytes loaded in the CRC
+	dey		; flush the header bytes loaded in the CRC
 	bne xpackrt
 	inc xpackn	; increment packet number
 	lda xcrch	; send CRC high byte first
@@ -385,7 +382,7 @@ xpackw	inx
 	jsr warbler	; send Xmodem EOT $04
 	lda #$81
 	sta $dc0d	; turn CIA #1 interrupts back on
-	jmp $ffcc	; Kernal clrchn and exit back to BASIC
+	jmp $ffcc	; Kernal clrchn and exit
 	; handle end of file in the middle of a packet
 	; basically fill the last packet up with ^Z
 xeof	inc xcount
