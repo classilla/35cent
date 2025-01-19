@@ -1,0 +1,6 @@
+*.bak
+*.sym
+*.o
+softmodem
+bak/
+bak/*

@@ -1,0 +1,192 @@
+>From: John Iannetta <73510.2152@CompuServe.COM>
+>Subject: The 35 cent modem [LONG]
+>Organization: CompuServe, Inc. (1-800-689-0736)
+>Message-ID: <#i#GxWbA#GA.310@nih2naaa.prod2.compuserve.com>
+>Newsgroups: comp.sys.cbm
+>Date: Tue, 27 Oct 1998 09:25:46 -0500
+>Path: news!global-news-master!newsfeed.concentric.net!feed1.news.rcn.net!rcn!newsfeed.enteract.com!ix.netcom.com!arl-news-svc-3.compuserve.com!news-master.compuserve.com!nntp-nih2naaa.compuserve.com
+>Lines: 178
+>Xref: news comp.sys.cbm:106175
+
+    To transfer files from a C-64/1541 to a PC, many users use the X1541 cable.
+But many newer PC printer cards use driver circuits that cannot be used with
+that cable.  The XE1541 (described in the docs for Joe Forster's "Star
+Commander") will probably work, but it requires four Schottky diodes.
+
+    Two other methods come to mind.  One is a modem-to-modem connection; the
+other is using a null modem adapter and a connection to the PC's serial port.
+On the C-64 end, the first requires either a direct-connect ("Commodore-ready")
+modem or an RS-232 interface adapter connected to the user port, along with an
+external RS-232 modem.  In place of the adapter, a true RS-232 cartridge may be
+used (e.g., SwiftLink or Turbo232) connected to the expansion (cartridge) port.
+The second method requires either the adapter or cartridge, but uses the null
+modem adapter (typical cost of about five dollars US) in place of the modem.
+Each of the two methods requires a terminal program on each end (called
+"Communications Software" in the MS-DOS world).
+
+    This article offers another option,
+which requires soldering only two wires, and probably no more than a 35-cent
+financial investment.  SID (either a 6581 or an 8580 IC) is used as an FSK
+(Frequency-Shift Keying) generator at 300 baud, in accordance with the Bell 103
+standard.  Only simplex operation is supported, so the direction is only from
+C-64 to other computer.  Also, since the Xmodem routine is "open-loop" (the
+C-64 ignores ACK's and NAK's that it receives), delays are used between blocks.
+Xmodem-CRC is used, since most terminal programs initiate downloads expecting
+that form of Xmodem.
+
+    The hardware consists of a length of telephone cable with a modular plug on
+one end and an RCA phono jack on the other.  One idea is to take a cable that
+is used for connecting between a modem and a wall jack, and cut off one of the
+connectors.  Strip the insulation from the red and green wires, and solder them
+to an RCA phono jack (listed in my Jameco catalog at 35 cents each).  In
+operation, the RCA phono plug is removed from the audio input jack of the
+monitor, and the plug is connected to the aforementioned jack.  The modular
+plug, of course, connects to the modem of the other computer.  The software for
+the C-64 is the type-in BASIC program listed below.  The other computer should
+be running general purpose communications software; I tested the method using
+PROCOMM on a '386/25 MS-DOS computer.  I transferred a 128 Kbyte file without
+problems.
+
+    To transfer a file, load and run the BASIC program, and wait for the blank
+screen.  Then, with the other computer's program running (and set to 300 baud),
+type in:
+
+ATX1D <ENTER>
+
+on the other computer.  After a few seconds, you should see "CONNECT" on its
+screen.  You should also see whatever you type in on the C-64's keyboard (using
+unshifted keys).  To exit, press F7; to send a file, press F1.  You will then
+be prompted for a device number (4 to 30) and a filename.  Right before you
+press <RETURN>, initiate an Xmodem download on the other computer.  You will
+not see anything displayed on the C-64 screen.  But if all goes well, you will
+see the transfer proceed on the other screen.  If there is even one error, you
+might as well abort; the transfer cannot recover.
+
+    I used a ZOOM 2400 fax/modem; high-speed modems may not support 300 bps.
+
+NTSC version
+------------
+
+>>> begin program
+10 poke55,.:poke56,160:clr:c=49152:b=1
+20 ready$:print"reading line";b;"of 20"
+30 fork=1to2:a$=mid$(y$,j*2+k)
+40 a=asc(a$)-48:ifa>9thena=a-7
+50 e=a+16*e:next:ife=256then90
+60 pokej+i+c,e:n=n+e:j=j+1:e=0
+70 ifj=15thenj=0:i=i+15:b=b+1:goto20
+80 goto30
+90 s=54272:ifn=38107then110
+100 print"data statement error":end
+110 d=56320:fori=stos+24:pokei,.:next
+120 e=56576:pokee+4,80:z=d+13:pokez,127
+130 pokee+5,13:pokee+13,127:pokee+15,8
+140 pokes+6,240:pokes,148:pokes+1,142
+150 pokes+24,6:pokee+11,.:pokee+14,1
+160 poked+15,8:poked+11,.:pokes+4,17
+170 sys49152:pokez,129:ifpeek(2)then190
+180 end
+190 pokez,129:printchr$(147);chr$(14)
+200 n=.:print"Enter device number."
+210 print:print"  8";chr$(145):inputn
+220 ifn=.thenend
+230 ifn<4orn>30thenprint:goto200
+240 print:print"Enter filename."
+250 f$="":print:inputf$:iff$=""thenend
+260 open9,3,9,f$:poke184,8
+270 poke185,8:poke186,n:sys65472
+280 ifst=.thenclose9:goto310
+290 print:print"DEVICE NOT PRESENT"
+300 close9:close8:print:goto200
+310 open15,n,15:input#15,j$,o$,h$,n$
+320 ifj$="00"then350
+330 print:printj$,o$:printh$,n$
+340 close15:close8:print:goto200
+350 sys49276:close15:close8
+500 data 2018e5ad0ddcf0fb2087eaa5c6f0f4
+510 data 2042f1c985f00ec988f0082016e720
+520 data 27c090e1a90085026085b086b184b2
+530 data ae0dddae0dddf0fba2818e01d4a2c3
+540 data 8e00d4a008ae0dddf0fb4ab00fa281
+550 data 8e01d4a2c38e00d488d0ebf00da28e
+560 data 8e01d4a2948e00d488d0dcae0dddf0
+570 data fba28e8e01d4a2948e00d4a5b0a6b1
+580 data a4b21860a97f8d0ddca20820c6ffa9
+590 data 018596a9008502a9012027c0a59620
+600 data 27c049ff2027c0a00320a5ff858b20
+610 data 27c0e602a690f006a91a858cd06220
+620 data a5ff858c2027c0a690d056e60220a5
+630 data ff2027c0858da208068d268c268b90
+640 data 0ca58b4910858ba58c4921858ccad0
+650 data e9a590d02fe60210d78a88d0d9e696
+660 data a58b2027c0a58c2027c0e88a4868aa
+670 data d0f9c8d0f6a590f082a9042027c0a9
+680 data 818d0ddc4cccffe60230d1a91ad0a7
+690 data 00g0
+>>> end program
+
+PAL version
+-----------
+
+>>> begin program
+10 poke55,.:poke56,160:clr:c=49152:b=1
+20 ready$:print"reading line";b;"of 20"
+30 fork=1to2:a$=mid$(y$,j*2+k)
+40 a=asc(a$)-48:ifa>9thena=a-7
+50 e=a+16*e:next:ife=256then90
+60 pokej+i+c,e:n=n+e:j=j+1:e=0
+70 ifj=15thenj=0:i=i+15:b=b+1:goto20
+80 goto30
+90 s=54272:ifn=37801then110
+100 print"data statement error":end
+110 d=56320:fori=stos+24:pokei,.:next
+120 e=56576:pokee+5,12:z=d+13:pokez,127
+130 pokee+4,211:pokee+13,127:pokee+15,8
+140 pokes+6,240:pokes,.:pokes+1,148
+150 pokes+24,6:pokee+11,.:pokee+14,1
+160 poked+15,8:poked+11,.:pokes+4,17
+170 sys49152:pokez,129:ifpeek(2)then190
+180 end
+190 pokez,129:printchr$(147);chr$(14)
+200 n=.:print"Enter device number."
+210 print:print"  8";chr$(145):inputn
+220 ifn=.thenend
+230 ifn<4orn>30thenprint:goto200
+240 print:print"Enter filename."
+250 f$="":print:inputf$:iff$=""thenend
+260 open9,3,9,f$:poke184,8
+270 poke185,8:poke186,n:sys65472
+280 ifst=.thenclose9:goto310
+290 print:print"DEVICE NOT PRESENT"
+300 close9:close8:print:goto200
+310 open15,n,15:input#15,j$,o$,h$,n$
+320 ifj$="00"then350
+330 print:printj$,o$:printh$,n$
+340 close15:close8:print:goto200
+350 sys49276:close15:close8
+500 data 2018e5ad0ddcf0fb2087eaa5c6f0f4
+510 data 2042f1c985f00ec988f0082016e720
+520 data 27c090e1a90085026085b086b184b2
+530 data ae0dddae0dddf0fba2868e01d4a2b3
+540 data 8e00d4a008ae0dddf0fb4ab00fa286
+550 data 8e01d4a2b38e00d488d0ebf00da294
+560 data 8e01d4a2008e00d488d0dcae0dddf0
+570 data fba2948e01d4a2008e00d4a5b0a6b1
+580 data a4b21860a97f8d0ddca20820c6ffa9
+590 data 018596a9008502a9012027c0a59620
+600 data 27c049ff2027c0a00320a5ff858b20
+610 data 27c0e602a690f006a91a858cd06220
+620 data a5ff858c2027c0a690d056e60220a5
+630 data ff2027c0858da208068d268c268b90
+640 data 0ca58b4910858ba58c4921858ccad0
+650 data e9a590d02fe60210d78a88d0d9e696
+660 data a58b2027c0a58c2027c0e88a4868aa
+670 data d0f9c8d0f6a590f082a9042027c0a9
+680 data 818d0ddc4cccffe60230d1a91ad0a7
+690 data 00g0
+>>> end program
+
+
+-- 
+
+                          John

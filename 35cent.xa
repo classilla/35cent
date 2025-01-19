@@ -1,0 +1,594 @@
+#define SEG(x)	.assert *<=x,"overrun":.dsb(x-*):.assert *=x,"oops"
+
+	; C64 softmodem by Cameron Kaiser
+	; based on "the 35-cent modem" by John Iannetta
+	; public domain
+	;
+	; assemble with xa:
+	; xa -O PETSCII -o softmodem 35cent.xa
+	;
+	; visit http://oldvcr.blogspot.com/
+
+	; work areas in zero page
+zp0	= $b0
+zp1	= $b1
+zp2	= $b2
+
+	; used by Xmodem sender
+	; running 16-bit crc, big-endian
+xcrch	= $8b
+xcrcl	= $8c
+	; next character being shifted in
+xcrcn	= $8d
+	; Xmodem packet number
+xpackn	= $96
+	; bytes in current Xmodem packet
+xcount	= $02
+
+	.word $0801
+	* = $0801
+
+; BASIC header
+.byt $0b, $08, $e8, $07, $9e, $32
+.byt $30, $36, $31, $00, $00, $00
+
+	SEG(2061)
+
+	; cache PAL/NTSC check in case we want to force one or the other
+	lda 678
+	sta ntscpal
+reset	jsr init
+
+	lda #<intro
+	ldx #>intro
+	jsr puts
+
+menu1	lda #<prompt
+	ldx #>prompt
+	jsr puts
+
+menu1w	jsr $ffe4	; Kernal getin
+	cmp #"a"
+	beq menu1a
+	cmp #"n"
+	beq menu1n
+	cmp #"d"
+	beq menu1d
+	cmp #"h"
+	beq reset
+	cmp #"p"
+	bne menu1w
+
+menu1p	lda #1
+	sta ntscpal
+	jmp reset
+menu1n	lda #0
+	sta ntscpal
+	jmp reset
+
+menu1d	; trigger standard precise tone plan dialtone on SID voices 1 and 2
+	lda #"D"
+	jsr $ffd2	; Kernal chrout
+	; select correct frequency values
+	lda ntscpal
+	bne dialpal
+dialnt	lda #49
+	sta 54272
+	lda #28
+	sta 54273
+	lda #109
+	sta 54279
+	lda #22
+	sta 54280
+	jmp menu1
+dialpal	lda #67
+	sta 54272
+	lda #29
+	sta 54273
+	lda #71
+	sta 54279
+	lda #23
+	sta 54280
+	jmp menu1
+
+menu1a	lda #"A"
+	jsr $ffd2
+
+menu2	lda #<prompt2
+	ldx #>prompt2
+	jsr puts
+
+	; "answer" the phone
+	; default frequency is stop bit (mark)
+	lda fmark
+	sta 54272
+	lda fmark+1
+	sta 54273
+	lda #0
+	sta 54279
+	sta 54280
+
+menu2l	jsr $ffe4
+	cmp #"t"
+	beq menu2t
+	cmp #"u"
+	beq menu2u
+	cmp #"h"
+	bne menu2l
+	jmp reset
+
+	; terminal
+menu2t	lda #<termp
+	ldx #>termp
+	jsr puts
+	jsr irqoff
+termw	lda $dc0d	; wait until Timer A interrupt time (still running)
+	beq termw
+	jsr $ea87	; Kernal scnkey
+	lda $c6
+	beq termw	; no key, go back to waiting
+	jsr $f142	; Kernal getin except don't check current input device
+	cmp #$85	; F1
+	beq termdun
+	jsr $e716	; Kernal chrout portion that emits to screen
+	tay
+	lda pet2a,y	; convert to ASCII
+	jsr warbler	; modulate the character
+	bcc termw	; go again
+termdun jsr irqon
+	jmp menu2
+
+	; choose upload type
+menu2u	lda #"U"
+	jsr $ffd2
+	lda #<upload
+	ldx #>upload
+	jsr puts
+
+menu2ul	jsr $ffe4
+	cmp #"x"
+	beq menu2ux
+	cmp #"a"
+	beq menu2ua
+	cmp #"g"
+	bne menu2ul
+	lda #"G"
+	jsr $ffd2
+	jmp menu2
+
+menu2ux	lda #"X"
+	jsr $ffd2
+	jsr setdfn
+	cmp #0
+	bne menu2ue
+	lda #<uxmodms
+	ldx #>uxmodms
+	jsr puts
+	jsr irqoff
+	jsr uxmodem
+	jsr irqon
+	lda #4
+	sta $d020
+	lda #8
+	jsr $ffc3	; explicit close file
+	jsr $ffe7	; Kernal clall
+	jmp menu2
+
+menu2ue ; error, common bail out
+	jsr $ffe7
+	lda #<errorms
+	ldx #>errorms
+	jsr puts
+	jmp menu2
+
+	; ASCII upload
+menu2ua lda #"A"
+	jsr $ffd2
+	jsr setdfn
+	cmp #0
+	bne menu2ue	; error
+	lda #<uascims
+	ldx #>uascims
+	jsr puts
+	lda #0
+	sta xcount
+	jsr irqoff
+	ldx #8
+	jsr $ffc6	; Kernal chkin
+asciis	jsr $ffa5	; Kernal acptr (read next byte from serial bus)
+	ldx 144
+	bne asciid
+	jsr warbler
+	inc xcount
+	bne *+5
+	inc $d020
+	jmp asciis
+asciid	jsr irqon
+	lda #4
+	sta $d020
+	lda #8
+	jsr $ffc3	; explicit close file
+	jsr $ffe7
+	jmp menu2
+
+	; choose device
+setdfn	lda #<devicep
+	ldx #>devicep
+	jsr puts
+
+devl	jsr $ffe4
+	cmp #"0"
+	beq dev10
+	cmp #"1"
+	beq dev11
+	cmp #"8"
+	beq dev8
+	cmp #"9"
+	beq dev9
+	cmp #"g"
+	bne devl
+	lda #"G"
+	jsr $ffd2
+	jmp menu2
+dev9	jsr $ffd2
+	lda #9
+	jmp filen
+dev8	jsr $ffd2
+	lda #8
+	jmp filen
+dev10	lda #"1"
+	jsr $ffd2
+	lda #"0"
+	jsr $ffd2
+	lda #10
+	jmp filen
+dev11	jsr $ffd2
+	jsr $ffd2
+	lda #11
+filen	sta zp2		; otherwise puts will clobber it
+	lda #<filenp
+	ldx #>filenp
+	jsr puts
+	; stuff in input buffer, a la BASIC INLIN
+	lda #0
+	sta 208
+	ldx #0
+filens	jsr $e112
+	cmp #13
+	beq filend
+	sta $0200,x
+	inx
+	cpx #19		; unpossible
+	bcc filens
+	; length now in x
+filend	cpx #0
+	bne *+5
+	jmp menu2
+
+	stx zp0
+	lda #"i"
+	sta 2
+	lda #15
+	ldx zp2
+	ldy #15
+	jsr $ffba	; Kernal setlfs
+	lda #1
+	ldx #2
+	ldy #0
+	jsr $ffbd	; Kernal setnam
+	jsr $ffc0	; Kernal open (open 15,d,15,"i")
+	lda 144		; check status, should be zero
+	beq *+3		; probably device not present
+	rts
+
+	lda #8
+	ldx zp2
+	ldy #8
+	jsr $ffba
+	lda zp0
+	ldx #0
+	ldy #2
+	jsr $ffbd	; Kernal setnam (using input buffer)
+	jsr $ffc0
+
+	; get disk status first character (should be zero)
+	ldx #15
+	jsr $ffc6	; Kernal chkin
+	jsr $ffcf
+	ldx 144
+	sec
+	sbc #48
+	rts
+
+	; send a file using Xmodem-CRC
+	; $8b, $8c = running 16-bit CRC in big-endian
+	; $8d = next byte being shifted in
+	; $02 = count of bytes in Xmodem packet
+uxmodem	lda #$7f
+	sta $dc0d	; ensure no CIA sources of interrupts
+	ldx #$08
+	jsr $ffc6	; Kernal chkin (already opened by BASIC)
+	lda #$01
+	sta xpackn	; workspace for current packet
+	; start sending the current Xmodem packet
+xpacket	lda #$00
+	sta xcount
+	lda #$01
+	jsr warbler	; send Xmodem SOH $01
+	lda xpackn
+	jsr warbler	; send packet number
+	eor #$ff
+	jsr warbler	; send inverse of packet number
+	ldy #$03
+	jsr $ffa5	; Kernal acptr, read next byte from file
+	sta xcrch	; store in high byte of CRC
+	jsr warbler	; transmit it
+	inc xcount
+	ldx $90		; EOF?
+	beq xnoeof1
+	lda #$1a	; yes, handle final packet, store a ^Z
+	sta xcrcl
+	bne xeof
+xnoeof1	jsr $ffa5	; read again
+	sta xcrcl	; store in low byte of CRC
+	jsr warbler	; transmit again
+	ldx $90
+	bne xeof	; check EOF again
+	inc xcount
+xpackr	jsr $ffa5	; read again
+xpackrs	jsr warbler	; transmit again
+xpackrt	sta xcrcn	; hold this byte
+	; for eight bits, compute crc, rolling newest byte in
+	ldx #$08
+xpaccrc	asl xcrcn
+	rol xcrcl
+	rol xcrch	; << 1
+	bcc xpaccrd	; if (crc & 0x8000)
+	lda xcrch	; crc ^= 0x1021
+	eor #$10
+	sta xcrch
+	lda xcrcl
+	eor #$21
+	sta xcrcl
+xpaccrd	dex
+	bne xpaccrc
+	lda $90
+	bne xeof	; check EOF again
+	inc xcount
+	bpl xpackr	; if not 128 bytes, get some more
+	; packet's done
+xpackd	txa		; x is zero, so zero accumulator
+	dey		; flush the initial bytes loaded in the CRC
+	bne xpackrt
+	inc xpackn	; increment packet number
+	lda xcrch	; send CRC high byte first
+	jsr warbler
+	lda xcrcl
+	jsr warbler
+	; delay briefly to wait for the ACK $06 to go by
+xpackw	inx
+	txa
+	pha
+	pla
+	tax
+	bne xpackw
+	iny
+	bne xpackw
+	; pretend it worked
+	inc $d020
+	lda $90
+	;beq xpacket	; if not EOF, go back and do another packet
+	bne *+5
+	jmp xpacket
+	; EOF, send EOT
+	lda #$04
+	jsr warbler	; send Xmodem EOT $04
+	lda #$81
+	sta $dc0d	; turn CIA #1 interrupts back on
+	jmp $ffcc	; Kernal clrchn and exit back to BASIC
+	; handle end of file in the middle of a packet
+	; basically fill the last packet up with ^Z
+xeof	inc xcount
+	bmi xpackd	; it's full
+	lda #$1a
+	bne xpackrs	; it's not full, send another ^Z and stuff into CRC
+	brk		; or die trying
+
+	; central routine to modulate a character over SID voice 1
+	; using Bell 103 modulation; SID must have already been set up
+	; volume=6 waveform=triangle,gated on ADSR=00f0
+	; assume stop bit is playing on entry, transmit 8-N-1
+warbler	sta zp0		; stash registers
+	stx zp1
+	sty zp2
+	ldx $dd0d	; clear CIA #2 interrupt sources
+			; this is deliberate, not an error
+	ldx $dd0d	; wait for next CIA #2 Timer A interrupt
+			; (this gives enough time for the last stop bit)
+	beq *-3
+	ldx fspace
+	stx $d400
+	ldx fspace+1
+	stx $d401	; start bit = 0 = set frequency to 2025 Hz
+	; transmit eight bits
+	ldy #$08
+warbles	ldx $dd0d	; wait for next interrupt
+	beq warbles
+	lsr		; shift in next bit
+	bcs warblem
+	ldx fspace
+	stx $d400
+	ldx fspace+1
+	stx $d401	; 0 bit = 2025 Hz
+	dey
+	bne warbles
+	beq warbled
+warblem	ldx fmark
+	stx $d400
+	ldx fmark+1
+	stx $d401	; 1 bit = 2225 Hz
+	dey
+	bne warbles
+warbled	ldx $dd0d	; wait one bit time on last bit
+	beq warbled
+	ldx fmark
+	stx $d400
+	ldx fmark+1
+	stx $d401	; stop bit = 1 = 2225 Hz
+	lda zp0
+	ldx zp1
+	ldy zp2		; restore registers
+	clc		; jorb well done
+	rts
+
+	; fix CIAs and disable IRQ sources
+	; this has to be done just in time prior to modulation
+irqoff	lda #127
+	sta 56576+13
+	sta 56320+13
+	lda #8
+	sta 56576+15
+	lda #0
+	sta 56576+11
+	lda #1
+	sta 56576+14
+	lda #8
+	sta 56320+15
+	lda #0
+	sta 56320+11
+	rts
+
+irqon	lda #129
+	sta 56320+13
+	rts
+	
+	; initializer
+	; sets proper frequencies, initializes CIA and SID
+	; (but not the timers which are set up just-in-time)
+init	jsr $ff84	; ioinit
+	lda #4
+	sta 53280
+	lda #12
+	sta 53281
+	lda ntscpal
+	bne gopal
+gontsc	; CIA #2 Timer A is set to 300 cycles per second
+	lda #<ntscms
+	ldx #>ntscms
+	jsr puts
+	lda #80
+	sta 56576+4
+	lda #13
+	sta 56576+5
+	; set NTSC frequencies
+	; since we're the answerer, use answerer frequencies
+	; space(0) is 2025Hz, mark(1) is 2225 Hz
+	; 
+	; for originate, use 1070Hz and 1270Hz (space/mark)
+	; for V.21 instead of Bell 103, use
+	; (originate, space/mark) 1180Hz 980Hz
+	; (answer, space/mark) 1850Hz 1650Hz
+	lda #$c3
+	sta fspace
+	lda #$81
+	sta fspace+1
+	lda #$94
+	sta fmark
+	lda #$8e
+	sta fmark+1
+gocom
+	; common SID initialization
+	lda #0
+	ldy #0
+sidup	sta 54272,y
+	iny
+	cpy #25
+	bne sidup
+
+	; load sine waves into voices 1 and 2
+	; frequencies are zero, so no audio yet
+	lda #240
+	sta 54278
+	sta 54285
+	lda #6		; approximate line level
+	sta 54296
+	lda #17
+	sta 54276
+	sta 54283
+	rts
+
+gopal	; set CIA
+	lda #<palms
+	ldx #>palms
+	jsr puts
+	lda #211
+	sta 56576+4
+	lda #12
+	sta 56576+5
+	; set PAL frequencies
+	lda #$b3
+	sta fspace
+	lda #$86
+	sta fspace+1
+	lda #$00
+	sta fmark
+	lda #$94
+	sta fmark+1
+	jmp gocom
+
+	; print a string
+puts	sta zp0
+	stx zp1
+	ldy #0
+putsl	lda (zp0),y
+	bne *+3
+	rts
+	iny
+	jsr $ffd2
+	jmp putsl
+
+	; variables
+ntscpal	.byt 0
+fmark	.word 0
+fspace	.word 0
+
+	; strings
+ntscms	.asc 5, 147, 14, 8, "Using NTSC settings.", 13, 13, 13, 0
+palms	.asc 5, 147, 14, 8, "Using PAL settings.", 13, 13, 13, 0
+
+intro
+	.asc "C64 SOFTMODEM", 13, 13
+	.asc "written by Cameron Kaiser", 13
+	.asc "based on ", 34, "The 35-Cent Modem", 34, 13
+	.asc "by John Iannetta", 13
+	.asc "oldvcr.blogspot.com * public domain", 13, 0
+
+prompt	.asc 13, "<P>AL/<N>TSC/<D>ialtone/<A>nswer", 13, "   or <H>ang up? ", 0
+prompt2	.asc 13, "<T>erminal/<U>pload/<H>ang up? ", 0
+
+termp	.asc 147, "One-way terminal mode, F1 returns", 13, 13, 0
+upload	.asc 13, "<X>modem-CRC/<A>SCII/<G>o back? ", 0
+devicep	.asc 13, "Device <8>/<9>/1<0>/1<1>/<G>o back? ", 0
+filenp	.asc 13, "Filename: ", 0
+errorms	.asc 13, "** Unable to open file **", 13, 0
+uascims	.asc 13, "Sending file plain ASCII...", 13, 0
+uxmodms	.asc 13, "Sending file Xmodem-CRC...", 13, 0
+
+	; PET to ASCII table (one way since the connection is one-way)
+pet2a
+.byt $00, $01, $02, $03, $04, $05, $06, $07, $14, $09, $0a, $11, $93, $0d, $0e, $0f,
+.byt $10, $0b, $12, $13, $08, $15, $16, $17, $18, $19, $1a, $1b, $1c, $1d, $1e, $1f,
+.byt $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $2a, $2b, $2c, $2d, $2e, $2f,
+.byt $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $3a, $3b, $3c, $3d, $3e, $3f,
+.byt $40, $61, $62, $63, $64, $65, $66, $67, $68, $69, $6a, $6b, $6c, $6d, $6e, $6f,
+.byt $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $7a, $5b, $5c, $5d, $5e, $5f,
+.byt $c0, $c1, $c2, $c3, $c4, $c5, $c6, $c7, $c8, $c9, $ca, $cb, $cc, $cd, $ce, $cf,
+.byt $d0, $d1, $d2, $d3, $d4, $d5, $d6, $d7, $d8, $d9, $da, $db, $dc, $dd, $de, $df,
+.byt $80, $81, $82, $83, $84, $1b, $86, $87, $88, $89, $8a, $8b, $8c, $8d, $8e, $8f,
+.byt $90, $91, $92, $0c, $94, $95, $96, $97, $98, $99, $9a, $9b, $9c, $9d, $9e, $9f,
+.byt $a0, $a1, $a2, $a3, $a4, $a5, $a6, $a7, $a8, $a9, $aa, $ab, $ac, $ad, $ae, $af,
+.byt $b0, $b1, $b2, $b3, $b4, $b5, $b6, $b7, $b8, $b9, $ba, $bb, $bc, $bd, $be, $bf,
+.byt $60, $41, $42, $43, $44, $45, $46, $47, $48, $49, $4a, $4b, $4c, $4d, $4e, $4f,
+.byt $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $5a, $7b, $7c, $7d, $7e, $7f,
+.byt $a0, $a1, $a2, $a3, $a4, $a5, $a6, $a7, $a8, $a9, $aa, $ab, $ac, $ad, $ae, $af,
+.byt $b0, $b1, $b2, $b3, $b4, $b5, $b6, $b7, $b8, $b9, $ba, $bb, $bc, $bd, $be, $bf
